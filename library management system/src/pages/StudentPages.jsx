@@ -112,7 +112,7 @@ function PdfViewerDocument({ resource, pdfFilePath, onClose, onPageChange }) {
     let createPdfDocument
     import('pdfjs-dist').then(({ getDocument, GlobalWorkerOptions }) => {
       if (!active) return null
-      GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+      GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs'
       createPdfDocument = getDocument
       loadingTask = getDocument({
         url: api.resourceFileUrl(pdfFilePath),

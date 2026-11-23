@@ -755,6 +755,16 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
       const method = request.method ?? 'GET'
       const path = url.pathname
       if (path === '/api/health' && method === 'GET') return json(response, 200, { ok: true })
+      if (path === '/api/system/status' && method === 'GET') {
+        const librarianCount = database.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'admin' AND active = 1").get().count
+        const studentCount = database.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'student' AND active = 1").get().count
+        const bookCount = database.prepare('SELECT COUNT(*) AS count FROM books').get().count
+        const resourceCount = database.prepare('SELECT COUNT(*) AS count FROM pdf_resources').get().count
+          + database.prepare('SELECT COUNT(*) AS count FROM video_resources').get().count
+          + database.prepare('SELECT COUNT(*) AS count FROM external_resources').get().count
+          + database.prepare('SELECT COUNT(*) AS count FROM document_resources').get().count
+        return json(response, 200, { persistentDatabase: Boolean(process.env.LIBRAAI_DB_PATH), librarianCount, studentCount, bookCount, resourceCount })
+      }
       if (method === 'OPTIONS') {
         response.writeHead(204, {
           Allow: 'GET, POST, PUT, PATCH, DELETE, OPTIONS',

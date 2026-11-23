@@ -12,6 +12,8 @@ RUN npm run build
 
 ENV NODE_ENV=production
 ENV API_PORT=3001
+ENV LIBRAAI_DB_PATH=/app/data/libraai.sqlite
+ENV LIBRAAI_UPLOAD_DIR=/app/data/uploads
 
 EXPOSE 3001
 CMD ["node", "server/index.js"]
