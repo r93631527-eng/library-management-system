@@ -2,15 +2,37 @@
 **/node_modules/
 **/dist/
 **/dist-ssr/
+**/build/
 **/dev-dist/
 **/data/
+**/coverage/
+**/.cache/
 *.local
 *.log
 
-# Local environment secrets
+# Local environment secrets and credentials
 **/.env
 **/.env.*
 !**/.env.example
+**/*.pem
+**/*.key
+**/*.jks
+**/*.keystore
+
+# Android and native build output
+**/android/
+**/.gradle/
+**/build-output/
+*.apk
+*.aab
+
+# Temporary, private, and editor files
+**/.tmp/
+**/tmp/
 **/LIBRA.AI
 **/LibraAI.AI
 **/LibraAI.txt
+**/.idea/
+**/.vscode/
+.DS_Store
+Thumbs.db

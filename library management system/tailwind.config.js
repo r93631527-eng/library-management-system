@@ -14,7 +14,7 @@ export default {
         display: ['Georgia', 'Cambria', 'Times New Roman', 'serif'],
       },
       boxShadow: {
-        card: '0 12px 35px rgba(27, 55, 43, .06)',
+        card: '0 12px 35px rgba(27, 55, 43, .06)',  
       },
     },
   },
