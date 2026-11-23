@@ -37,7 +37,14 @@ export function AppProvider({ children }) {
         setApiError('')
       })
       .catch((error) => {
-        if (active) setApiError(error.message)
+        if (!active) return
+        if (error.status === 401) {
+          setUser(null)
+          setDatabase(emptyDatabase)
+          setApiError('')
+        } else {
+          setApiError(error.message)
+        }
       })
       .finally(() => {
         if (active) setReady(true)
@@ -58,7 +65,14 @@ export function AppProvider({ children }) {
           setApiError('')
         }
       } catch (error) {
-        if (active) setApiError(error.message)
+        if (!active) return
+        if (error.status === 401) {
+          setUser(null)
+          setDatabase(emptyDatabase)
+          setApiError('')
+        } else {
+          setApiError(error.message)
+        }
       } finally {
         syncing = false
       }

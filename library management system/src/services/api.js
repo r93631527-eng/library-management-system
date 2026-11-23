@@ -28,7 +28,11 @@ async function request(path, options = {}) {
     },
   })
   const result = response.status === 204 ? {} : await response.json()
-  if (!response.ok) throw new Error(result.error ?? 'The library server could not complete this request.')
+  if (!response.ok) {
+    const error = new Error(result.error ?? 'The library server could not complete this request.')
+    error.status = response.status
+    throw error
+  }
   return result
 }
 
@@ -56,6 +60,10 @@ export function uploadResource(file, resource, onProgress = () => {}) {
   if (file.size > maximumSize) return Promise.reject(new Error('Resource files must be 35 MB or smaller.'))
   const form = new FormData()
   form.append('file', file)
+  const uploadKey = resource.id
+    ? `resource:${resource.id}:${file.name}:${file.size}:${file.lastModified}`
+    : `upload:${file.name}:${file.size}:${file.lastModified}`
+  form.append('uploadKey', uploadKey)
   for (const field of ['id', 'title', 'author', 'subject', 'subjectCode', 'scheme', 'examYear', 'resourceType', 'category', 'accessType', 'department', 'semester', 'description']) {
     if (resource[field] !== undefined && resource[field] !== '') form.append(field, String(resource[field]))
   }
