@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, BookOpen, Bookmark, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, Copy, Download, Flag, LibraryBig, LoaderCircle, Maximize2, Minimize2, Search, Sparkles, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { Badge, Button, EmptyState, Modal, PageHeader, SearchBox, StatCard } from '../components/Layout'
 import { useApp } from '../context/useApp'
 import { resourceCategories } from '../resourceCategories'
@@ -113,7 +112,7 @@ function PdfViewerDocument({ resource, pdfFilePath, onClose, onPageChange }) {
     let createPdfDocument
     import('pdfjs-dist').then(({ getDocument, GlobalWorkerOptions }) => {
       if (!active) return null
-      GlobalWorkerOptions.workerSrc = pdfWorker
+      GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
       createPdfDocument = getDocument
       loadingTask = getDocument({
         url: api.resourceFileUrl(pdfFilePath),
