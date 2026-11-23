@@ -57,8 +57,10 @@ function ResourceEditorRoute() {
 
 function RegistrationRoute() {
   const { role } = useParams()
+  const { database, user } = useApp()
+  if (user) return <Navigate to={user.role === 'admin' ? '/admin' : '/student'} replace />
   if (role === 'student') return <RegisterPage />
-  if (role === 'admin') return <AdminSetupPage />
+  if (role === 'admin') return database.hasLibrarian ? <Navigate to="/login/admin" replace /> : <AdminSetupPage />
   return <Navigate to="/" replace />
 }
 

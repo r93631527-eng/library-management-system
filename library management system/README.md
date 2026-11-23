@@ -1,4 +1,4 @@
-# LibraAI - Department Digital Library
+﻿# LibraAI - Department Digital Library
 
 LibraAI is a responsive React and Vite website with a Node.js HTTP API and SQLite database. It supports a student experience and a librarian/administrator experience for books, digital study resources, circulation, notifications, reports, and Gemini-powered PDF summaries.
 
@@ -34,7 +34,7 @@ Install these tools before starting the project:
 2. **npm**, included with Node.js
 3. **LibreOffice** only if Office files will be converted to PDF previews
 4. **Git** for saving and uploading the project to GitHub
-5. **Android Studio, Java, and Bubblewrap** only for generating an APK
+5. Optional: a modern mobile browser for PWA installation
 
 Check the main tools:
 
@@ -58,11 +58,10 @@ Open a terminal in that directory. If you use the parent workspace package scrip
 
 | Path | Purpose |
 |---|---|
-| `package.json` | Workspace-level shortcuts and Capacitor dependencies |
+| `package.json` | Workspace-level shortcuts for the web application |
 | `package-lock.json` | Parent npm dependency lock |
-| `capacitor.config.json` | Capacitor app ID `com.library.app`, app name `LibraAI`, and web directory `dist` |
 
-The parent folder does not currently contain an initialized `android/` or Bubblewrap project.
+LibraAI is a web/PWA application with no native Android or TWA wrapper.
 
 ### Application folder
 
@@ -227,7 +226,7 @@ The API loads `.env` at startup. Existing process environment variables take pre
 The optional model setting is:
 
 ```dotenv
-GEMINI_MODEL=gemini-3.1-flash-lite
+GEMINI_MODEL=gemini-2.5-flash
 ```
 
 On Railway or another deployed server, add `GEMINI_API_KEY` and the optional model as server secret environment variables. Never put a secret in `VITE_*`, frontend source, screenshots, public code, or `public/`.
@@ -243,7 +242,7 @@ Uploaded PDFs used only for temporary summarization are processed for that reque
 | `LIBRAAI_DB_PATH` | `data/libraai.sqlite` | SQLite file location |
 | `LIBRAAI_UPLOAD_DIR` | `data/uploads` | Uploaded resource location |
 | `GEMINI_API_KEY` | Not set | Gemini API key |
-| `GEMINI_MODEL` | `gemini-3.1-flash-lite` | Gemini model |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model |
 | `LIBRAAI_ALLOWED_ORIGINS` | Not set | Comma-separated exact origins for cross-origin API access |
 | `LIBRAAI_COOKIE_SAMESITE` | `Strict` | Set to `None` only for cross-site HTTPS |
 | `VITE_API_BASE_URL` | Same origin | Frontend API base URL, build-time variable |
@@ -445,117 +444,11 @@ PWAs generally require HTTPS. `localhost` is accepted for local testing. Test in
 
 To change the app name or colours, update `vite.config.js` and `index.html`, then rebuild and redeploy.
 
-## TWA and Bubblewrap APK
+## Web and PWA installation
 
-This project has a Capacitor configuration (`appId: com.library.app`, web directory `dist`) but no Android project or Bubblewrap project has been generated yet.
+LibraAI is a web-only application. The Railway HTTPS website works directly in desktop and mobile browsers. Chrome or Edge users may optionally install it from the browser menu to a phone or desktop home screen.
 
-Before creating an APK:
-
-1. Deploy LibraAI to a stable HTTPS domain.
-2. Confirm `/` and `/api/health` work on that domain.
-3. Install Android Studio and a JDK supported by Bubblewrap.
-4. Install Node.js and Bubblewrap:
-
-```bash
-npm install -g @bubblewrap/cli
-bubblewrap --version
-```
-
-5. Create the APK project in a separate Android output folder. Do not put the generated native project inside `node_modules`, `dist`, or `data`.
-
-Initialize a TWA project:
-
-```bash
-cd "C:\Users\Admin\Documents"
-bubblewrap init --manifest=https://YOUR-RAILWAY-DOMAIN/manifest.webmanifest
-```
-
-When Bubblewrap asks:
-
-- Use package name `com.library.app` to match the existing Capacitor configuration.
-- Use `LibraAI` as the app name.
-- Use `https://YOUR-RAILWAY-DOMAIN/` as the launch URL.
-- Generate or provide a signing key.
-- Keep the key and password private.
-
-Build it:
-
-```bash
-cd libraai-twa
-bubblewrap build
-```
-
-The generated APK should be verified in the Bubblewrap output folder, commonly under `app/build/outputs/apk/`. Use the signed APK for private installation.
-
-For an installable TWA, publish Digital Asset Links so Android recognizes the website as the app. Create `.well-known/assetlinks.json` on the website:
-
-```json
-[
-  {
-    "relation": ["delegate_permission/common.handle_all_urls"],
-    "target": {
-      "namespace": "android_app",
-      "package_name": "com.library.app",
-      "sha256_cert_fingerprints": ["YOUR-SIGNING-CERTIFICATE-SHA256"]
-    }
-  }
-]
-```
-
-Place that file at:
-
-```text
-https://YOUR-DOMAIN/.well-known/assetlinks.json
-```
-
-Get the signing-certificate SHA-256 by using Bubblewrap or Android Studio to inspect the signing key. Keep the private keystore and passwords private.
-
-If Digital Asset Links is missing or does not match, Android may open the website in an ordinary browser tab instead of showing the app without a browser toolbar.
-
-### Alternative: Capacitor Android build
-
-Capacitor dependencies exist at the parent level, but no Android platform has been created. To add a native Android shell containing the built PWA:
-
-```bash
-cd "C:\Users\Admin\Downloads\library management system"
-npm run build
-npx cap add android
-npx cap sync android
-npx cap open android
-```
-
-Then build an APK in Android Studio. A Capacitor shell is not the same as Bubblewrap: it packages `dist/` and must be rebuilt/synced for PWA/app-shell changes.
-
-## Installing and privately sharing the APK
-
-For a small private group:
-
-1. Build or export a signed APK.
-2. Scan it for malware and test it on a compatible Android phone.
-3. Send it directly through a private chat, approved school email, approved USB transfer, or controlled file-sharing link.
-4. On the phone, open the APK.
-5. Allow installation from that app/source only if you trust it.
-6. Tap **Install**, then open LibraAI.
-
-On first use, allow network access and sign in normally. Do not share `.env`, database files, upload folders, private keys, or signing passwords.
-
-An APK shared outside Google Play is not automatically updated. Keep a record of the package name and signing key. Reinstalling a new APK must use the same package name and signing key to upgrade safely.
-
-For a larger group or managed devices, distribute the APK through an approved mobile-device management system or publish a signed app through Google Play.
-
-## How website updates reach the Android app
-
-LibraAI is a website-first PWA/TWA.
-
-- Librarian or student data stored in Railway comes from the server, so data updates can appear immediately after refresh or during the app's five-second synchronization while signed in.
-- Website code updates require a new frontend build and deployment.
-- PWA/TWA updates: Bubblewrap loads the HTTPS website URL, and the PWA service worker uses `registerType: 'autoUpdate'`; updated website assets can appear after the app refreshes and the service worker update completes.
-- If the app has stale content, close and reopen it or clear/reload the PWA cache.
-- Rebuild and reinstall the APK only when the native app configuration, package name, domain, signing setup, or Bubblewrap/Capacitor shell changes.
-- If a TWA domain or signing certificate changes, update `assetlinks.json` and the TWA configuration.
-
-The Android wrapper does not contain the live SQLite database or your user's private data. Backend updates happen on Railway.
-
+This project has no native app, APK, or TWA configuration. Open and use the Railway HTTPS URL instead.
 ## Common errors
 
 ### `npm is not recognized`
@@ -635,27 +528,6 @@ The API and Vite proxy use the new API port.
 - Confirm `manifest.webmanifest`, icons, and service-worker files are served.
 - Clear old site data and reload once.
 - Use Chrome or Edge for the simplest PWA test.
-
-### APK opens a browser tab or address bar
-
-- Add the correct `.well-known/assetlinks.json`.
-- Confirm the package name is `com.library.app`.
-- Confirm the SHA-256 fingerprint belongs to the actual signing key.
-- Reinstall the APK after asset links become available.
-- Allow enough time for Android verification/cache updates.
-
-### `Capacitor` build has no Android folder
-
-No Android platform is initialized. Run:
-
-```bash
-cd "C:\Users\Admin\Downloads\library management system"
-npm run build
-npx cap add android
-npx cap sync android
-```
-
-This creates the native Android project. It is separate from the Bubblewrap process.
 
 ### Lost local database or uploads
 

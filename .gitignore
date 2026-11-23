@@ -19,12 +19,6 @@
 **/*.jks
 **/*.keystore
 
-# Android and native build output
-**/android/
-**/.gradle/
-**/build-output/
-*.apk
-*.aab
 
 # Temporary, private, and editor files
 **/.tmp/

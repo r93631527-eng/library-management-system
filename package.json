@@ -5,10 +5,5 @@
     "build": "npm --prefix \"library management system\" run build",
     "lint": "npm --prefix \"library management system\" run lint",
     "test:api": "npm --prefix \"library management system\" run test:api"
-  },
-  "dependencies": {
-    "@capacitor/android": "^8.6.2",
-    "@capacitor/cli": "^8.6.2",
-    "@capacitor/core": "^8.6.2"
   }
 }

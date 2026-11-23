@@ -1,4 +1,4 @@
-# Logs and temporary output
+﻿# Logs and temporary output
 logs/
 *.log
 npm-debug.log*
@@ -31,12 +31,6 @@ dev-dist/
 *.jks
 *.keystore
 
-# Android and native build output
-android/
-.gradle/
-build-output/
-*.apk
-*.aab
 
 # Existing private/local project artifacts
 /LIBRA.AI

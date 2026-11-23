@@ -6,6 +6,29 @@ import { DatabaseSync } from 'node:sqlite'
 import { after, before, test } from 'node:test'
 import { createDatabase, createLibraryServer } from './index.js'
 
+function createTextPdf(text) {
+  const safeText = String(text).replace(/[\\()]/g, (character) => `\\${character}`).replace(/[^\x20-\x7E]/g, ' ')
+  const stream = `BT /F1 14 Tf 72 720 Td (${safeText}) Tj ET`
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+  ]
+  let pdf = '%PDF-1.7\n'
+  const offsets = [0]
+  for (let index = 0; index < objects.length; index += 1) {
+    offsets.push(Buffer.byteLength(pdf))
+    pdf += `${index + 1} 0 obj\n${objects[index]}\nendobj\n`
+  }
+  const xrefOffset = Buffer.byteLength(pdf)
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+  for (let index = 1; index < offsets.length; index += 1) pdf += `${String(offsets[index]).padStart(10, '0')} 00000 n \n`
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`
+  return pdf
+}
+
 const database = createDatabase(':memory:')
 const uploadPath = mkdtempSync(join(tmpdir(), 'libraai-api-test-'))
 const { server } = createLibraryServer({ database, uploadPath })
@@ -587,7 +610,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
     assert.equal(admin.response.status, 200)
 
     const categoryUploadSpecs = [
-      { category: 'E-Books', type: 'pdf', fileName: 'ebook.pdf', contents: '%PDF-1.7\ne-book' },
+      { category: 'E-Books', type: 'pdf', fileName: 'ebook.pdf', contents: createTextPdf('Ohms law states that voltage equals current times resistance. The summary should include Ohms law and electrical engineering revision notes.') },
       { category: 'Question Papers', type: 'question_bank', fileName: 'paper.pdf', contents: '%PDF-1.7\nquestion paper', subjectCode: 'EEE201', scheme: '2022', examYear: '2025', semester: '4' },
       { category: 'Study Notes', type: 'study_notes', fileName: 'notes.pdf', contents: '%PDF-1.7\nstudy notes' },
       { category: 'Lab Manuals', type: 'lab_manual', fileName: 'lab.pdf', contents: '%PDF-1.7\nlab manual' },
@@ -644,7 +667,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       assert.equal(unconfiguredSummary.response.status, 503)
       assert.match(unconfiguredSummary.body.error, /GEMINI_API_KEY/)
       const unconfiguredUploadForm = new FormData()
-      unconfiguredUploadForm.append('file', new Blob(['%PDF-1.7\nnotes'], { type: 'application/pdf' }), 'notes.pdf')
+      unconfiguredUploadForm.append('file', new Blob([createTextPdf('Notes about electrical engineering voltage current resistance.')], { type: 'application/pdf' }), 'notes.pdf')
       const unconfiguredUpload = await fetch(`${testOrigin}/api/ai/summarize-upload`, {
         method: 'POST',
         headers: { Cookie: matchingStudent.cookie },
@@ -656,7 +679,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
 
       process.env.GEMINI_API_KEY = 'test-gemini-api-key'
       const unauthenticatedUploadForm = new FormData()
-      unauthenticatedUploadForm.append('file', new Blob(['%PDF-1.7\nnotes'], { type: 'application/pdf' }), 'notes.pdf')
+      unauthenticatedUploadForm.append('file', new Blob([createTextPdf('Notes about electrical engineering voltage current resistance.')], { type: 'application/pdf' }), 'notes.pdf')
       const unauthenticatedUpload = await fetch(`${testOrigin}/api/ai/summarize-upload`, { method: 'POST', body: unauthenticatedUploadForm })
       assert.equal(unauthenticatedUpload.status, 401)
       const unsupportedUploadForm = new FormData()
@@ -681,8 +704,9 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       assert.match(transferRequest.body.toString(), /^%PDF-1\.7/)
       const generationRequest = geminiRequests.find((item) => item.url.pathname.endsWith(':generateContent'))
       assert.ok(generationRequest)
-      assert.match(generationRequest.url.pathname, /models\/gemini-3\.1-flash-lite:generateContent$/)
+      assert.match(generationRequest.url.pathname, /models\/gemini-2\.5-flash:generateContent$/)
       assert.equal(generationRequest.headers['x-goog-api-key'], 'test-gemini-api-key')
+      assert.match(generationRequest.body.toString(), /Ohms law states that voltage equals current times resistance/i)
       assert.ok(geminiRequests.some((item) => item.method === 'DELETE' && item.url.pathname.endsWith('/files/summary-test')))
       assert.ok(testDatabase.prepare('SELECT id FROM document_resources WHERE id = ?').get(pdfResource.id))
 
@@ -694,14 +718,14 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       generationError = { code: 404, status: 'NOT_FOUND', message: 'This model is no longer available. Choose an active model.' }
       const detailedGeminiFailure = await testRequest(`/api/resources/document/${pdfResource.id}/summary`, { method: 'POST', cookie: matchingStudent.cookie })
       assert.equal(detailedGeminiFailure.response.status, 502)
-      assert.match(detailedGeminiFailure.body.error, /Gemini summary generation with model gemini-3\.1-flash-lite failed \(HTTP 404/)
+      assert.match(detailedGeminiFailure.body.error, /Gemini summary generation with model gemini-2\.5-flash failed \(HTTP 404/)
       assert.match(detailedGeminiFailure.body.error, /This model is no longer available/)
       assert.doesNotMatch(detailedGeminiFailure.body.error, /test-gemini-api-key/)
       generationError = null
 
       const beforeTransientUpload = readdirSync(testUploadPath).sort()
       const transientPdf = new FormData()
-      transientPdf.append('file', new Blob(['%PDF-1.7\ntransient engineering notes'], { type: 'application/pdf' }), 'transient-notes.pdf')
+      transientPdf.append('file', new Blob([createTextPdf('Transient engineering notes about Ohms law and electrical circuits.')], { type: 'application/pdf' }), 'transient-notes.pdf')
       const transientResponse = await fetch(`${testOrigin}/api/ai/summarize-upload`, {
         method: 'POST',
         headers: { Cookie: matchingStudent.cookie },
@@ -714,7 +738,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       assert.ok(testDatabase.prepare('SELECT id FROM document_resources WHERE id = ?').get(pdfResource.id))
 
       const librarianTransientPdf = new FormData()
-      librarianTransientPdf.append('file', new Blob(['%PDF-1.7\nlibrarian notes'], { type: 'application/pdf' }), 'librarian-notes.pdf')
+      librarianTransientPdf.append('file', new Blob([createTextPdf('Librarian engineering notes about transformers and electrical power.')], { type: 'application/pdf' }), 'librarian-notes.pdf')
       const librarianTransientResponse = await fetch(`${testOrigin}/api/ai/summarize-upload`, {
         method: 'POST',
         headers: { Cookie: admin.cookie },

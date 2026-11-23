@@ -8,6 +8,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import Busboy from 'busboy'
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
 
 const currentFile = fileURLToPath(import.meta.url)
 const applicationDirectory = dirname(currentFile)
@@ -224,7 +225,37 @@ function serveResourceFile(request, response, diskPath, { mimeType, originalName
   }).pipe(response)
 }
 
+async function extractPdfText(pdf, title) {
+  try {
+    const loadingTask = getDocument({
+      data: new Uint8Array(pdf),
+      disableWorker: true,
+      standardFontDataUrl: pathToFileURL(join(applicationDirectory, 'node_modules/pdfjs-dist/standard_fonts')).href,
+    })
+    const pdfDocument = await loadingTask.promise
+    const textParts = []
+    for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+      const page = await pdfDocument.getPage(pageNumber)
+      const content = await page.getTextContent()
+      textParts.push(content.items.map((item) => item.str || '').join(' '))
+    }
+    await pdfDocument.destroy()
+    const text = textParts.join('\n\n').replace(/\s+/g, ' ').trim()
+    if (!text) {
+      throw Object.assign(new Error(`This PDF appears to be scanned or contain no extractable text: ${title}. Use a text-based PDF or OCR it before summarizing.`), { status: 422 })
+    }
+    if (text.length < 20) {
+      throw Object.assign(new Error(`The PDF text for ${title} is too short or unreadable to summarize reliably.`), { status: 422 })
+    }
+    return text.slice(0, 200000)
+  } catch (error) {
+    if (error.status) throw error
+    throw Object.assign(new Error(`The PDF could not be read for text extraction: ${error.message || 'Unknown PDF parsing error'}`), { status: 422 })
+  }
+}
+
 async function summarizePdfWithGemini({ pdf, title, apiKey, model, fetchGemini }) {
+  const extractedText = await extractPdfText(pdf, title)
   const headers = { 'x-goog-api-key': apiKey }
   const providerError = async (response, stage) => {
     let responseBody = ''
@@ -330,9 +361,10 @@ async function summarizePdfWithGemini({ pdf, title, apiKey, model, fetchGemini }
 5. Possible exam questions with concise answers, each answer supported by the PDF
 6. Chapter-wise summaries, using chapter headings from the PDF when available.
 If the PDF is scanned, read its page images with OCR/vision. If the text is too unclear to read reliably, say so instead of inferring. Format the result in clear Markdown.`
-    const generationUrl = `${geminiFilesApi}/v1beta/models/${encodeURIComponent(model)}:generateContent`
+    const configuredModel = process.env.GEMINI_MODEL || model || 'gemini-2.5-flash'
+    const generationUrl = `${geminiFilesApi}/v1beta/models/${encodeURIComponent(configuredModel)}:generateContent`
     const generationBody = JSON.stringify({
-      contents: [{ parts: [{ file_data: { mime_type: 'application/pdf', file_uri: activeFile.uri || file.uri } }, { text: prompt }] }],
+      contents: [{ parts: [{ file_data: { mime_type: 'application/pdf', file_uri: activeFile.uri || file.uri } }, { text: `${prompt}\n\nEXTRACTED PDF TEXT (use this as the primary text source):\n${extractedText.slice(0, 160000)}` }] }],
       generationConfig: { temperature: 0.2 },
     })
     let summaryResponse
@@ -590,6 +622,15 @@ function createDatabase(path = databasePath) {
     if (user.role === 'admin') database.prepare('INSERT OR IGNORE INTO librarians (user_id, librarian_id) VALUES (?, ?)').run(user.id, user.usn)
   }
   const userColumnNames = new Set(database.prepare('PRAGMA table_info(users)').all().map((column) => column.name))
+  if (userColumnNames.has('password') && userColumnNames.has('password_hash')) {
+    const legacyUsers = database.prepare('SELECT id, password FROM users WHERE password IS NOT NULL AND password <> \'\'').all()
+    for (const legacyUser of legacyUsers) {
+      const existing = database.prepare('SELECT password_hash FROM users WHERE id = ?').get(legacyUser.id)
+      if (existing && !existing.password_hash.includes(':')) {
+        database.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(legacyUser.password), legacyUser.id)
+      }
+    }
+  }
   if (['name', 'usn', 'email', 'department'].every((column) => userColumnNames.has(column))) {
     database.exec(`
       UPDATE borrow_records SET
@@ -781,6 +822,7 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
         ? database.prepare('SELECT * FROM users WHERE id = ? AND active = 1').get(session.user_id)
         : null
       if (session && !currentUser) database.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash)
+      database.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(Date.now())
       const requireUser = () => {
         if (!currentUser) throw Object.assign(new Error('Sign in to continue.'), { status: 401 })
         return currentUser
@@ -842,7 +884,7 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
             pdf,
             title: upload.originalName,
             apiKey,
-            model: process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite',
+            model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
             fetchGemini,
           })
         } catch (error) {
@@ -896,7 +938,7 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
           pdf,
           title: resource.title,
           apiKey,
-          model: process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite',
+          model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
           fetchGemini,
         })
         return json(response, 200, { summary })
