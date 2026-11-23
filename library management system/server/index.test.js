@@ -70,6 +70,16 @@ test('secures roles and keeps circulation counts in sync', async () => {
   assert.equal(librarianLogin.body.user.id, setup.body.user.id)
   const librarianSession = await request('/api/auth/session', { cookie: librarianLogin.cookie })
   assert.equal(librarianSession.body.user.id, setup.body.user.id)
+  const renewedExpiry = database.prepare('SELECT expires_at FROM sessions JOIN users ON users.id = sessions.user_id WHERE users.id = ?').get(setup.body.user.id).expires_at
+  assert.ok(renewedExpiry > Date.now())
+  database.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run('secure-password', setup.body.user.id)
+  const legacyLibrarianLogin = await request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ identifier: 'lib-desk-001', password: 'secure-password', role: 'librarian' }),
+  })
+  assert.equal(legacyLibrarianLogin.response.status, 200)
+  const migratedHash = database.prepare('SELECT password_hash FROM users WHERE id = ?').get(setup.body.user.id).password_hash
+  assert.match(migratedHash, /^[0-9a-f]+:[0-9a-f]+$/)
   const incorrectLibrarianPassword = await request('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify({ identifier: 'lib-desk-001', password: 'incorrect-password', role: 'admin' }),
@@ -566,12 +576,6 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
     fetchGemini: async (input, options = {}) => {
       const requestUrl = new URL(input)
       geminiRequests.push({ url: requestUrl, method: options.method ?? 'GET', headers: options.headers ?? {}, body: options.body })
-      if (requestUrl.pathname === '/upload/v1beta/files' && !requestUrl.searchParams.has('upload_id')) {
-        return new Response(null, { status: 200, headers: { 'x-goog-upload-url': 'https://generativelanguage.googleapis.com/upload/v1beta/files?upload_id=summary-test' } })
-      }
-      if (requestUrl.searchParams.has('upload_id')) {
-        return new Response(JSON.stringify({ file: { name: 'files/summary-test', uri: 'https://generativelanguage.googleapis.com/v1beta/files/summary-test', mimeType: 'application/pdf', state: 'ACTIVE' } }), { status: 200 })
-      }
       if (requestUrl.pathname.endsWith(':generateContent')) {
         if (generationError) return new Response(JSON.stringify({ error: generationError }), { status: generationError.code })
         if (transientGenerationFailures > 0) {
@@ -623,12 +627,28 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       categoryForm.append('subject', 'Circuits')
       categoryForm.append('resourceType', spec.type)
       categoryForm.append('category', spec.category)
+      categoryForm.append('uploadKey', `category-upload-${index}`)
       if (spec.subjectCode) categoryForm.append('subjectCode', spec.subjectCode)
       if (spec.scheme) categoryForm.append('scheme', spec.scheme)
       if (spec.examYear) categoryForm.append('examYear', spec.examYear)
       if (spec.semester) categoryForm.append('semester', spec.semester)
       const response = await fetch(`${testOrigin}/api/uploads/resource`, { method: 'POST', headers: { Cookie: admin.cookie }, body: categoryForm })
-      assert.equal(response.status, 201, `${spec.category}: ${await response.text()}`)
+      const firstResult = await response.json()
+      assert.equal(response.status, 201, `${spec.category}: ${JSON.stringify(firstResult)}`)
+      if (spec.type === 'pdf') {
+        const repeatForm = new FormData()
+        repeatForm.append('file', new Blob([spec.contents], { type: 'application/pdf' }), spec.fileName)
+        repeatForm.append('title', `Category test ${index}`)
+        repeatForm.append('subject', 'Circuits')
+        repeatForm.append('resourceType', spec.type)
+        repeatForm.append('category', spec.category)
+        repeatForm.append('uploadKey', `category-upload-${index}`)
+        const repeatedResponse = await fetch(`${testOrigin}/api/uploads/resource`, { method: 'POST', headers: { Cookie: admin.cookie }, body: repeatForm })
+        const repeatedResult = await repeatedResponse.json()
+        assert.equal(repeatedResponse.status, 200)
+        assert.equal(repeatedResult.duplicate, true)
+        assert.equal(repeatedResult.id, firstResult.id)
+      }
     }
     for (const [index, spec] of [
       { category: 'Video Lectures', type: 'video', url: 'https://example.edu/video' },
@@ -696,18 +716,13 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       assert.match(summarized.body.summary, /Test-grounded study summary/)
       assert.doesNotMatch(JSON.stringify(summarized.body), /test-gemini-api-key/)
       assert.equal(geminiRequests[0].method, 'POST')
-      assert.match(geminiRequests[0].url.pathname, /\/upload\/v1beta\/files$/)
+      assert.match(geminiRequests[0].url.pathname, /models\/gemini-2\.5-flash:generateContent$/)
       assert.equal(geminiRequests[0].headers['x-goog-api-key'], 'test-gemini-api-key')
-      const transferRequest = geminiRequests.find((item) => item.url.searchParams.has('upload_id'))
-      assert.ok(transferRequest)
-      assert.equal(transferRequest.headers['Content-Type'], 'application/pdf')
-      assert.match(transferRequest.body.toString(), /^%PDF-1\.7/)
       const generationRequest = geminiRequests.find((item) => item.url.pathname.endsWith(':generateContent'))
       assert.ok(generationRequest)
       assert.match(generationRequest.url.pathname, /models\/gemini-2\.5-flash:generateContent$/)
       assert.equal(generationRequest.headers['x-goog-api-key'], 'test-gemini-api-key')
       assert.match(generationRequest.body.toString(), /Ohms law states that voltage equals current times resistance/i)
-      assert.ok(geminiRequests.some((item) => item.method === 'DELETE' && item.url.pathname.endsWith('/files/summary-test')))
       assert.ok(testDatabase.prepare('SELECT id FROM document_resources WHERE id = ?').get(pdfResource.id))
 
       transientGenerationFailures = 1
@@ -718,7 +733,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       generationError = { code: 404, status: 'NOT_FOUND', message: 'This model is no longer available. Choose an active model.' }
       const detailedGeminiFailure = await testRequest(`/api/resources/document/${pdfResource.id}/summary`, { method: 'POST', cookie: matchingStudent.cookie })
       assert.equal(detailedGeminiFailure.response.status, 502)
-      assert.match(detailedGeminiFailure.body.error, /Gemini summary generation with model gemini-2\.5-flash failed \(HTTP 404/)
+      assert.match(detailedGeminiFailure.body.error, /Gemini summary generation with model gemini-2\.0-flash failed \(HTTP 404/)
       assert.match(detailedGeminiFailure.body.error, /This model is no longer available/)
       assert.doesNotMatch(detailedGeminiFailure.body.error, /test-gemini-api-key/)
       generationError = null
