@@ -1,0 +1,16 @@
+# Dependencies and generated output
+**/node_modules/
+**/dist/
+**/dist-ssr/
+**/dev-dist/
+**/data/
+*.local
+*.log
+
+# Local environment secrets
+**/.env
+**/.env.*
+!**/.env.example
+**/LIBRA.AI
+**/LibraAI.AI
+**/LibraAI.txt
