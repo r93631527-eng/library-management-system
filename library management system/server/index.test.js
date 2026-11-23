@@ -52,6 +52,16 @@ async function request(path, { cookie, ...options } = {}) {
   return { response, body, cookie: response.headers.get('set-cookie')?.split(';')[0] }
 }
 
+test('serves the emitted PDF.js module worker with a JavaScript MIME type', async () => {
+  const assetDirectory = new URL('../dist/assets/', import.meta.url)
+  const workerName = readdirSync(assetDirectory).find((name) => /^pdf\.worker\.min-.+\.mjs$/.test(name))
+  assert.ok(workerName, 'production PDF.js worker must be emitted into dist/assets')
+  const response = await fetch(`${origin}/assets/${workerName}`)
+  assert.equal(response.status, 200)
+  assert.match(response.headers.get('content-type'), /^text\/javascript(?:;|$)/)
+  assert.ok((await response.arrayBuffer()).byteLength > 100000)
+})
+
 test('secures roles and keeps circulation counts in sync', async () => {
   const setup = await request('/api/auth/setup', {
     method: 'POST',
