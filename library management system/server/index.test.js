@@ -68,8 +68,10 @@ test('secures roles and keeps circulation counts in sync', async () => {
   })
   assert.equal(librarianLogin.response.status, 200)
   assert.equal(librarianLogin.body.user.id, setup.body.user.id)
+  assert.match(librarianLogin.response.headers.get('set-cookie'), /Max-Age=31536000/)
   const librarianSession = await request('/api/auth/session', { cookie: librarianLogin.cookie })
   assert.equal(librarianSession.body.user.id, setup.body.user.id)
+  assert.match(librarianSession.response.headers.get('set-cookie'), /Max-Age=31536000/)
   const renewedExpiry = database.prepare('SELECT expires_at FROM sessions JOIN users ON users.id = sessions.user_id WHERE users.id = ?').get(setup.body.user.id).expires_at
   assert.ok(renewedExpiry > Date.now())
   database.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run('secure-password', setup.body.user.id)
@@ -685,7 +687,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       delete process.env.GEMINI_API_KEY
       const unconfiguredSummary = await testRequest(`/api/resources/document/${pdfResource.id}/summary`, { method: 'POST', cookie: matchingStudent.cookie })
       assert.equal(unconfiguredSummary.response.status, 503)
-      assert.match(unconfiguredSummary.body.error, /GEMINI_API_KEY/)
+      assert.match(unconfiguredSummary.body.error, /Railway project administrator.*GEMINI_API_KEY/)
       const unconfiguredUploadForm = new FormData()
       unconfiguredUploadForm.append('file', new Blob([createTextPdf('Notes about electrical engineering voltage current resistance.')], { type: 'application/pdf' }), 'notes.pdf')
       const unconfiguredUpload = await fetch(`${testOrigin}/api/ai/summarize-upload`, {
@@ -694,7 +696,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
         body: unconfiguredUploadForm,
       })
       assert.equal(unconfiguredUpload.status, 503)
-      assert.match((await unconfiguredUpload.json()).error, /GEMINI_API_KEY/)
+      assert.match((await unconfiguredUpload.json()).error, /Railway project administrator.*GEMINI_API_KEY/)
       assert.equal(geminiRequests.length, 0)
 
       process.env.GEMINI_API_KEY = 'test-gemini-api-key'

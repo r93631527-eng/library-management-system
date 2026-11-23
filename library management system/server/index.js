@@ -21,7 +21,7 @@ const databasePath = process.env.LIBRAAI_DB_PATH
 const uploadDirectory = process.env.LIBRAAI_UPLOAD_DIR
   ? resolve(process.env.LIBRAAI_UPLOAD_DIR)
   : resolve(applicationDirectory, '..', 'data', 'uploads')
-const sessionLifetime = 7 * 24 * 60 * 60
+const sessionLifetime = 365 * 24 * 60 * 60
 const maximumRequestBytes = 1024 * 1024
 const maximumResourceBytes = 35 * 1024 * 1024
 const geminiFilesApi = 'https://generativelanguage.googleapis.com'
@@ -740,7 +740,14 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
           + database.prepare('SELECT COUNT(*) AS count FROM video_resources').get().count
           + database.prepare('SELECT COUNT(*) AS count FROM external_resources').get().count
           + database.prepare('SELECT COUNT(*) AS count FROM document_resources').get().count
-        return json(response, 200, { persistentDatabase: Boolean(process.env.LIBRAAI_DB_PATH), librarianCount, studentCount, bookCount, resourceCount })
+        return json(response, 200, {
+          persistentDatabase: Boolean(process.env.LIBRAAI_DB_PATH),
+          aiConfigured: Boolean(process.env.GEMINI_API_KEY),
+          librarianCount,
+          studentCount,
+          bookCount,
+          resourceCount,
+        })
       }
       if (method === 'OPTIONS') {
         response.writeHead(204, {
@@ -800,7 +807,7 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
       if (path === '/api/ai/summarize-upload' && method === 'POST') {
         requireUser()
         const apiKey = process.env.GEMINI_API_KEY
-        if (!apiKey) throw Object.assign(new Error('Gemini AI is not configured on the library server. Set GEMINI_API_KEY in the API server environment, then restart the server.'), { status: 503 })
+        if (!apiKey) throw Object.assign(new Error('AI PDF summaries are not configured. A Railway project administrator must add GEMINI_API_KEY in the LibraAI service Variables, then redeploy.'), { status: 503 })
         const upload = await receivePdf(request, uploadPath)
         const pdfPath = join(uploadPath, upload.filename)
         let summary
@@ -869,7 +876,7 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
           throw Object.assign(new Error('This file does not contain a readable PDF.'), { status: 422 })
         }
         const apiKey = process.env.GEMINI_API_KEY
-        if (!apiKey) throw Object.assign(new Error('Gemini AI is not configured on the library server. Ask your librarian to set GEMINI_API_KEY.'), { status: 503 })
+        if (!apiKey) throw Object.assign(new Error('AI PDF summaries are not configured. A Railway project administrator must add GEMINI_API_KEY in the LibraAI service Variables, then redeploy.'), { status: 503 })
         const summary = await summarizePdfWithGemini({
           pdf,
           title: resource.title,
