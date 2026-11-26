@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -56,10 +56,21 @@ test('serves the emitted PDF.js module worker with a JavaScript MIME type', asyn
   const assetDirectory = new URL('../dist/assets/', import.meta.url)
   const workerName = readdirSync(assetDirectory).find((name) => /^pdf\.worker\.min-.+\.mjs$/.test(name))
   assert.ok(workerName, 'production PDF.js worker must be emitted into dist/assets')
+  const viewerBundle = readdirSync(assetDirectory)
+    .filter((name) => /^StudentPages-.+\.js$/.test(name))
+    .map((name) => readFileSync(new URL(name, assetDirectory), 'utf8'))
+    .find((contents) => contents.includes(workerName))
+  assert.ok(viewerBundle, 'production PDF viewer must reference its emitted PDF.js worker')
   const response = await fetch(`${origin}/assets/${workerName}`)
   assert.equal(response.status, 200)
   assert.match(response.headers.get('content-type'), /^text\/javascript(?:;|$)/)
   assert.ok((await response.arrayBuffer()).byteLength > 100000)
+})
+
+test('keeps existing app clients on their matching service-worker asset versions', () => {
+  const serviceWorker = readFileSync(new URL('../dist/sw.js', import.meta.url), 'utf8')
+  assert.doesNotMatch(serviceWorker, /self\.skipWaiting\(\),/)
+  assert.doesNotMatch(serviceWorker, /\.clientsClaim\(\)/)
 })
 
 test('secures roles and keeps circulation counts in sync', async () => {
@@ -319,6 +330,19 @@ test('secures roles and keeps circulation counts in sync', async () => {
   assert.equal(uploadedQuestionPaper.subjectCode, 'EEE101')
   assert.equal(uploadedQuestionPaper.scheme, '2022')
   assert.equal(uploadedQuestionPaper.examYear, '2025')
+  assert.equal(uploadedQuestionPaper.availability, 'Available')
+  const pdfResponse = await fetch(`${origin}${uploaded.filePath}`, { headers: { Cookie: adminCookie } })
+  assert.equal(pdfResponse.status, 200)
+  assert.equal(pdfResponse.headers.get('content-type'), 'application/pdf')
+  assert.equal(await pdfResponse.text(), pdfContents)
+  const pdfRangeResponse = await fetch(`${origin}${uploaded.filePath}`, { headers: { Cookie: adminCookie, Range: 'bytes=0-4' } })
+  assert.equal(pdfRangeResponse.status, 206)
+  assert.equal(await pdfRangeResponse.text(), '%PDF-')
+  const pdfDiskPath = join(uploadPath, uploaded.filePath.split('/').at(-1))
+  unlinkSync(pdfDiskPath)
+  const missingPdfCatalog = await request('/api/database', { cookie: adminCookie })
+  assert.equal(missingPdfCatalog.body.resources.find((item) => item.id === uploaded.id).availability, 'Missing file')
+  writeFileSync(pdfDiskPath, pdfContents)
   const publicCatalog = await request('/api/database')
   assert.equal(publicCatalog.body.resources.some((item) => item.title === 'Restricted notes'), false, JSON.stringify(publicCatalog.body.resources.filter((item) => item.title === 'Restricted notes')))
   const editedPdf = await request(`/api/resources/pdf/${uploaded.id}`, {

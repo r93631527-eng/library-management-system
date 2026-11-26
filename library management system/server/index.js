@@ -1264,8 +1264,16 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
           upload_date AS uploadDate, file_size AS fileSize FROM pdf_resources`).all().map((resource) => {
           let fileSize = resource.fileSize
           const uploadedFile = resource.filePath.match(/^\/api\/files\/([a-f0-9]{32}\.pdf)$/)
-          if (!fileSize && uploadedFile) {
-            try { fileSize = statSync(join(uploadPath, uploadedFile[1])).size } catch (error) { if (error.code !== 'ENOENT') throw error }
+          let fileExists = Boolean(uploadedFile)
+          if (uploadedFile) {
+            try {
+              const fileStats = statSync(join(uploadPath, uploadedFile[1]))
+              fileSize = fileStats.size
+              fileExists = fileStats.isFile() && fileStats.size > 0
+            } catch (error) {
+              if (error.code === 'ENOENT') fileExists = false
+              else throw error
+            }
           }
           return {
             ...resource,
@@ -1273,7 +1281,7 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
             previewPath: resource.filePath,
             downloadPath: resource.filePath,
             fileSize: fileSize || 0,
-            availability: uploadedFile && !fileSize ? 'Missing file' : 'Available',
+            availability: uploadedFile && !fileExists ? 'Missing file' : 'Available',
           }
         })
         const resources = [

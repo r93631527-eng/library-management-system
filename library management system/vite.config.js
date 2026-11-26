@@ -10,7 +10,7 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       injectRegister: 'auto',
       includeAssets: ['libraai-icon.svg', 'favicon.ico'],
       manifest: {
@@ -31,8 +31,8 @@ export default defineConfig({
       },
       workbox: {
         cleanupOutdatedCaches: true,
-        skipWaiting: true,
-        clientsClaim: true,
+        skipWaiting: false,
+        clientsClaim: false,
         navigateFallback: '/index.html',
         globPatterns: ['**/*.{js,mjs,css,html,svg,png,ico,webp,pdf,woff,woff2}'],
         navigateFallbackDenylist: [/^\/api\//],

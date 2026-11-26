@@ -423,7 +423,7 @@ It includes:
 - Background colour `#f5f7f4`
 - 192 px, 512 px, and maskable 512 px icons
 - Apple and general web app metadata
-- `autoUpdate` service-worker registration
+- Service-worker updates wait until existing app tabs are closed, preventing old app code from requesting assets removed by a new deployment
 - Navigation fallback to `index.html`
 - API `/api` requests configured as network-only
 

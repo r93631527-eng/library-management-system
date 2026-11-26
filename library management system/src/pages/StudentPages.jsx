@@ -5,7 +5,7 @@ import { Badge, Button, EmptyState, Modal, PageHeader, SearchBox, StatCard } fro
 import { useApp } from '../context/useApp'
 import { resourceCategories } from '../resourceCategories'
 import * as api from '../services/api'
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url&no-inline'
 
 const dateLabel = (value) => value ? new Date(`${value}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
 const activityDate = (issue) => issue.returnDate || issue.issueDate || ''
