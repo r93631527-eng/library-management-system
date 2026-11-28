@@ -307,7 +307,7 @@ Format the result in clear Markdown.`
     throw Object.assign(new Error('Gemini model availability check returned an invalid response.'), { status: 502 })
   }
   const flashModels = [...availableModels].filter((candidateModel) => /flash/i.test(candidateModel))
-  const models = [...new Set([configuredModel, 'gemini-3.8-flash', ...flashModels])]
+  const models = [...new Set([configuredModel, 'gemini-3.8-flash', 'gemini-3.5-flash-lite', ...flashModels])]
     .filter((candidateModel) => availableModels.has(candidateModel))
   if (models.length === 0) {
     throw Object.assign(new Error('No available Gemini Flash model supports summary generation.'), { status: 503 })
