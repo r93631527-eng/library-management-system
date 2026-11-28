@@ -223,13 +223,13 @@ GEMINI_API_KEY=your-Gemini-API-key
 
 The API loads `.env` at startup. Existing process environment variables take precedence. Restart the API after adding or changing the key.
 
-The optional model setting is:
+Gemini 3.5 Flash-Lite is the preferred model. The server checks that it is available for `generateContent` before use. `GEMINI_MODEL` is an optional fallback if the preferred model is unavailable:
 
 ```dotenv
-GEMINI_MODEL=gemini-3.8-flash
+GEMINI_MODEL=gemini-3.5-flash-lite
 ```
 
-On Railway or another deployed server, add `GEMINI_API_KEY` and the optional model as server secret environment variables. Never put a secret in `VITE_*`, frontend source, screenshots, public code, or `public/`.
+PDF summary generation allows up to 10 minutes for a Gemini response; the API server does not apply an idle response timeout. On Railway or another deployed server, add `GEMINI_API_KEY` and, if needed, the optional fallback model as server environment variables. Never put a secret in `VITE_*`, frontend source, screenshots, public code, or `public/`.
 
 Uploaded PDFs used only for temporary summarization are processed for that request and are not added to the library. Generated summaries are not saved to SQLite.
 
@@ -242,7 +242,7 @@ Uploaded PDFs used only for temporary summarization are processed for that reque
 | `LIBRAAI_DB_PATH` | `data/libraai.sqlite` | SQLite file location |
 | `LIBRAAI_UPLOAD_DIR` | `data/uploads` | Uploaded resource location |
 | `GEMINI_API_KEY` | Not set | Gemini API key |
-| `GEMINI_MODEL` | `gemini-3.8-flash` | Gemini model |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Optional fallback Gemini model if the preferred model is unavailable |
 | `LIBRAAI_ALLOWED_ORIGINS` | Not set | Comma-separated exact origins for cross-origin API access |
 | `LIBRAAI_COOKIE_SAMESITE` | `Strict` | Set to `None` only for cross-site HTTPS |
 | `VITE_API_BASE_URL` | Same origin | Frontend API base URL, build-time variable |

@@ -25,6 +25,8 @@ const sessionLifetime = 365 * 24 * 60 * 60
 const maximumRequestBytes = 1024 * 1024
 const maximumResourceBytes = 35 * 1024 * 1024
 const geminiFilesApi = 'https://generativelanguage.googleapis.com'
+const defaultGeminiModel = 'gemini-3.5-flash-lite'
+const geminiGenerationTimeoutMs = 10 * 60 * 1000
 const resourceFileTypes = {
   '.pdf': { fileType: 'pdf', mimeType: 'application/pdf', mimeTypes: ['application/pdf'], signature: '%PDF-' },
   '.doc': { fileType: 'doc', mimeType: 'application/msword', mimeTypes: ['application/msword'], signature: 'd0cf11e0a1b11ae1' },
@@ -288,7 +290,7 @@ async function summarizePdfWithGemini({ pdf, title, apiKey, model, fetchGemini }
 5. Possible exam questions with concise answers, each answer supported by the PDF
 6. Chapter-wise summaries, using chapter headings from the PDF when available.
 Format the result in clear Markdown.`
-  const configuredModel = (process.env.GEMINI_MODEL || model || 'gemini-3.8-flash').replace(/^models\//, '')
+  const configuredModel = (model || process.env.GEMINI_MODEL || defaultGeminiModel).replace(/^models\//, '')
   const modelsResponse = await fetchGemini(`${geminiFilesApi}/v1beta/models?pageSize=1000`, {
     headers,
     signal: AbortSignal.timeout(120000),
@@ -307,7 +309,7 @@ Format the result in clear Markdown.`
     throw Object.assign(new Error('Gemini model availability check returned an invalid response.'), { status: 502 })
   }
   const flashModels = [...availableModels].filter((candidateModel) => /flash/i.test(candidateModel))
-  const models = [...new Set([configuredModel, 'gemini-3.8-flash', 'gemini-3.5-flash-lite', ...flashModels])]
+  const models = [...new Set([defaultGeminiModel, configuredModel, ...flashModels])]
     .filter((candidateModel) => availableModels.has(candidateModel))
   if (models.length === 0) {
     throw Object.assign(new Error('No available Gemini Flash model supports summary generation.'), { status: 503 })
@@ -327,7 +329,7 @@ Format the result in clear Markdown.`
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: generationBody,
-        signal: AbortSignal.timeout(120000),
+        signal: AbortSignal.timeout(geminiGenerationTimeoutMs),
       }).catch((error) => {
         throw fetchError(`summary generation with model ${candidateModel}`, error)
       })
@@ -337,7 +339,7 @@ Format the result in clear Markdown.`
       const retryAfter = Number(summaryResponse.headers.get('retry-after'))
       const delay = Number.isFinite(retryAfter) && retryAfter > 0
         ? Math.min(retryAfter * 1000, 8000)
-        : 1000 * (attempt + 1)
+        : Math.min(1000 * (2 ** attempt), 8000)
       const body = await summaryResponse.text()
       summaryResponse = new Response(body, {
         status: summaryResponse.status,
@@ -849,7 +851,7 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
             pdf,
             title: upload.originalName,
             apiKey,
-            model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+            model: process.env.GEMINI_MODEL || defaultGeminiModel,
             fetchGemini,
           })
         } catch (error) {
@@ -903,7 +905,7 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
           pdf,
           title: resource.title,
           apiKey,
-          model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+          model: process.env.GEMINI_MODEL || defaultGeminiModel,
           fetchGemini,
         })
         return json(response, 200, { summary })
@@ -2107,6 +2109,7 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
       return json(response, error.status ?? (error.code === 'SQLITE_CONSTRAINT_UNIQUE' ? 409 : 500), { error: error.code === 'SQLITE_CONSTRAINT_UNIQUE' ? 'A record with these details already exists.' : error.message ?? 'Unexpected server error.' })
     }
   })
+  server.timeout = 0
   return { server, database }
 }
 

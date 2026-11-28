@@ -604,7 +604,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
   const testUploadPath = mkdtempSync(join(tmpdir(), 'libraai-document-test-'))
   const geminiRequests = []
   const availableGeminiModels = ['gemini-3.8-flash', 'gemini-3.5-flash-lite']
-  let transientGenerationFailures = 0
+  let transientGenerationErrors = []
   let generationError = null
   const { server: testServer } = createLibraryServer({
     database: testDatabase,
@@ -620,11 +620,11 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       }
       if (requestUrl.pathname.endsWith(':generateContent')) {
         if (generationError) return new Response(JSON.stringify({ error: generationError }), { status: generationError.code })
-        if (transientGenerationFailures > 0) {
-          transientGenerationFailures -= 1
-          return new Response(JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE', message: 'Temporary model capacity.' } }), {
-            status: 503,
-            headers: { 'Retry-After': '0.01' },
+        if (transientGenerationErrors.length > 0) {
+          const status = transientGenerationErrors.shift()
+          return new Response(JSON.stringify({ error: { code: status, status: 'UNAVAILABLE', message: 'Temporary model capacity.' } }), {
+            status,
+            headers: { 'Retry-After': '0.001' },
           })
         }
         return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '# Simple overview\nTest-grounded study summary.' }] } }] }), { status: 200 })
@@ -633,6 +633,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       throw new Error(`Unexpected Gemini API request: ${options.method ?? 'GET'} ${requestUrl.pathname}`)
     },
   })
+  assert.equal(testServer.timeout, 0)
   await new Promise((resolve) => testServer.listen(0, '127.0.0.1', resolve))
   const testOrigin = `http://127.0.0.1:${testServer.address().port}`
   async function testRequest(path, { cookie, ...options } = {}) {
@@ -741,7 +742,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       assert.equal(geminiRequests.length, 0)
 
       process.env.GEMINI_API_KEY = 'test-gemini-api-key'
-      process.env.GEMINI_MODEL = 'gemini-2.0-flash'
+      process.env.GEMINI_MODEL = 'gemini-3.8-flash'
       const unauthenticatedUploadForm = new FormData()
       unauthenticatedUploadForm.append('file', new Blob([createTextPdf('Notes about electrical engineering voltage current resistance.')], { type: 'application/pdf' }), 'notes.pdf')
       const unauthenticatedUpload = await fetch(`${testOrigin}/api/ai/summarize-upload`, { method: 'POST', body: unauthenticatedUploadForm })
@@ -764,26 +765,31 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       assert.equal(geminiRequests[0].headers['x-goog-api-key'], 'test-gemini-api-key')
       const generationRequest = geminiRequests.find((item) => item.url.pathname.endsWith(':generateContent'))
       assert.ok(generationRequest)
-      assert.match(generationRequest.url.pathname, /models\/gemini-3\.8-flash:generateContent$/)
+      assert.match(generationRequest.url.pathname, /models\/gemini-3\.5-flash-lite:generateContent$/)
       assert.equal(generationRequest.headers['x-goog-api-key'], 'test-gemini-api-key')
       assert.match(generationRequest.body.toString(), /Ohms law states that voltage equals current times resistance/i)
       assert.ok(testDatabase.prepare('SELECT id FROM document_resources WHERE id = ?').get(pdfResource.id))
 
-      transientGenerationFailures = 1
+      const beforeTransientRetries = geminiRequests.length
+      transientGenerationErrors = [503, 429]
       const retriedSummary = await testRequest(`/api/resources/document/${pdfResource.id}/summary`, { method: 'POST', cookie: matchingStudent.cookie })
       assert.equal(retriedSummary.response.status, 200, JSON.stringify(retriedSummary.body))
       assert.match(retriedSummary.body.summary, /Test-grounded study summary/)
+      assert.equal(
+        geminiRequests.slice(beforeTransientRetries).filter((item) => item.url.pathname.endsWith(':generateContent')).length,
+        3,
+      )
 
       generationError = { code: 404, status: 'NOT_FOUND', message: 'This model is no longer available. Choose an active model.' }
       const requestsBeforeDetailedFailure = geminiRequests.length
       const detailedGeminiFailure = await testRequest(`/api/resources/document/${pdfResource.id}/summary`, { method: 'POST', cookie: matchingStudent.cookie })
       assert.equal(detailedGeminiFailure.response.status, 502)
-      assert.match(detailedGeminiFailure.body.error, /Gemini summary generation with model gemini-3\.5-flash-lite failed \(HTTP 404/)
+      assert.match(detailedGeminiFailure.body.error, /Gemini summary generation with model gemini-3\.8-flash failed \(HTTP 404/)
       assert.match(detailedGeminiFailure.body.error, /This model is no longer available/)
       assert.doesNotMatch(detailedGeminiFailure.body.error, /test-gemini-api-key/)
       assert.deepEqual(
         geminiRequests.slice(requestsBeforeDetailedFailure).filter((item) => item.url.pathname.endsWith(':generateContent')).map((item) => item.url.pathname),
-        ['/v1beta/models/gemini-3.8-flash:generateContent', '/v1beta/models/gemini-3.5-flash-lite:generateContent'],
+        ['/v1beta/models/gemini-3.5-flash-lite:generateContent', '/v1beta/models/gemini-3.8-flash:generateContent'],
       )
       generationError = null
 
