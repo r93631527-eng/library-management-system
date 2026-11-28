@@ -288,8 +288,30 @@ async function summarizePdfWithGemini({ pdf, title, apiKey, model, fetchGemini }
 5. Possible exam questions with concise answers, each answer supported by the PDF
 6. Chapter-wise summaries, using chapter headings from the PDF when available.
 Format the result in clear Markdown.`
-  const configuredModel = process.env.GEMINI_MODEL || model || 'gemini-2.5-flash'
-  const models = [...new Set([configuredModel, 'gemini-2.5-flash', 'gemini-2.0-flash'].filter(Boolean))]
+  const configuredModel = (process.env.GEMINI_MODEL || model || 'gemini-2.5-flash').replace(/^models\//, '')
+  const modelsResponse = await fetchGemini(`${geminiFilesApi}/v1beta/models?pageSize=1000`, {
+    headers,
+    signal: AbortSignal.timeout(120000),
+  }).catch((error) => {
+    throw fetchError('model availability check', error)
+  })
+  if (!modelsResponse.ok) throw await providerError(modelsResponse, 'model availability check')
+  let availableModels
+  try {
+    const modelList = await modelsResponse.json()
+    availableModels = new Set((modelList.models || [])
+      .filter((item) => item.supportedGenerationMethods?.includes('generateContent'))
+      .map((item) => item.name?.replace(/^models\//, ''))
+      .filter(Boolean))
+  } catch {
+    throw Object.assign(new Error('Gemini model availability check returned an invalid response.'), { status: 502 })
+  }
+  const flashModels = [...availableModels].filter((candidateModel) => /flash/i.test(candidateModel))
+  const models = [...new Set([configuredModel, 'gemini-2.5-flash', 'gemini-2.5-flash-lite', ...flashModels])]
+    .filter((candidateModel) => availableModels.has(candidateModel))
+  if (models.length === 0) {
+    throw Object.assign(new Error('No available Gemini Flash model supports summary generation.'), { status: 503 })
+  }
   const generationBody = JSON.stringify({
     contents: [{ parts: [{ text: `${prompt}\n\nPDF TITLE: ${title}\n\nEXTRACTED PDF TEXT:\n${extractedText.slice(0, 160000)}` }] }],
     generationConfig: { temperature: 0.2, maxOutputTokens: 8192 },

@@ -603,6 +603,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
   const testDatabase = createDatabase(':memory:')
   const testUploadPath = mkdtempSync(join(tmpdir(), 'libraai-document-test-'))
   const geminiRequests = []
+  const availableGeminiModels = ['gemini-2.5-flash', 'gemini-2.5-flash-lite']
   let transientGenerationFailures = 0
   let generationError = null
   const { server: testServer } = createLibraryServer({
@@ -612,6 +613,11 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
     fetchGemini: async (input, options = {}) => {
       const requestUrl = new URL(input)
       geminiRequests.push({ url: requestUrl, method: options.method ?? 'GET', headers: options.headers ?? {}, body: options.body })
+      if (requestUrl.pathname === '/v1beta/models') {
+        return new Response(JSON.stringify({
+          models: availableGeminiModels.map((name) => ({ name: `models/${name}`, supportedGenerationMethods: ['generateContent'] })),
+        }), { status: 200 })
+      }
       if (requestUrl.pathname.endsWith(':generateContent')) {
         if (generationError) return new Response(JSON.stringify({ error: generationError }), { status: generationError.code })
         if (transientGenerationFailures > 0) {
@@ -717,6 +723,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
     assert.equal(geminiRequests.length, 0)
 
     const previousGeminiKey = process.env.GEMINI_API_KEY
+    const previousGeminiModel = process.env.GEMINI_MODEL
     try {
       delete process.env.GEMINI_API_KEY
       const unconfiguredSummary = await testRequest(`/api/resources/document/${pdfResource.id}/summary`, { method: 'POST', cookie: matchingStudent.cookie })
@@ -734,6 +741,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       assert.equal(geminiRequests.length, 0)
 
       process.env.GEMINI_API_KEY = 'test-gemini-api-key'
+      process.env.GEMINI_MODEL = 'gemini-2.0-flash'
       const unauthenticatedUploadForm = new FormData()
       unauthenticatedUploadForm.append('file', new Blob([createTextPdf('Notes about electrical engineering voltage current resistance.')], { type: 'application/pdf' }), 'notes.pdf')
       const unauthenticatedUpload = await fetch(`${testOrigin}/api/ai/summarize-upload`, { method: 'POST', body: unauthenticatedUploadForm })
@@ -751,8 +759,8 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       assert.equal(summarized.response.status, 200, JSON.stringify(summarized.body))
       assert.match(summarized.body.summary, /Test-grounded study summary/)
       assert.doesNotMatch(JSON.stringify(summarized.body), /test-gemini-api-key/)
-      assert.equal(geminiRequests[0].method, 'POST')
-      assert.match(geminiRequests[0].url.pathname, /models\/gemini-2\.5-flash:generateContent$/)
+      assert.equal(geminiRequests[0].method, 'GET')
+      assert.equal(geminiRequests[0].url.pathname, '/v1beta/models')
       assert.equal(geminiRequests[0].headers['x-goog-api-key'], 'test-gemini-api-key')
       const generationRequest = geminiRequests.find((item) => item.url.pathname.endsWith(':generateContent'))
       assert.ok(generationRequest)
@@ -767,11 +775,16 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       assert.match(retriedSummary.body.summary, /Test-grounded study summary/)
 
       generationError = { code: 404, status: 'NOT_FOUND', message: 'This model is no longer available. Choose an active model.' }
+      const requestsBeforeDetailedFailure = geminiRequests.length
       const detailedGeminiFailure = await testRequest(`/api/resources/document/${pdfResource.id}/summary`, { method: 'POST', cookie: matchingStudent.cookie })
       assert.equal(detailedGeminiFailure.response.status, 502)
-      assert.match(detailedGeminiFailure.body.error, /Gemini summary generation with model gemini-2\.0-flash failed \(HTTP 404/)
+      assert.match(detailedGeminiFailure.body.error, /Gemini summary generation with model gemini-2\.5-flash-lite failed \(HTTP 404/)
       assert.match(detailedGeminiFailure.body.error, /This model is no longer available/)
       assert.doesNotMatch(detailedGeminiFailure.body.error, /test-gemini-api-key/)
+      assert.deepEqual(
+        geminiRequests.slice(requestsBeforeDetailedFailure).filter((item) => item.url.pathname.endsWith(':generateContent')).map((item) => item.url.pathname),
+        ['/v1beta/models/gemini-2.5-flash:generateContent', '/v1beta/models/gemini-2.5-flash-lite:generateContent'],
+      )
       generationError = null
 
       const beforeTransientUpload = readdirSync(testUploadPath).sort()
@@ -799,6 +812,8 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
     } finally {
       if (previousGeminiKey === undefined) delete process.env.GEMINI_API_KEY
       else process.env.GEMINI_API_KEY = previousGeminiKey
+      if (previousGeminiModel === undefined) delete process.env.GEMINI_MODEL
+      else process.env.GEMINI_MODEL = previousGeminiModel
     }
 
     const originalBytes = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from('office document contents')])
