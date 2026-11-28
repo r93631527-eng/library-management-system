@@ -226,7 +226,7 @@ The API loads `.env` at startup. Existing process environment variables take pre
 The optional model setting is:
 
 ```dotenv
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.8-flash
 ```
 
 On Railway or another deployed server, add `GEMINI_API_KEY` and the optional model as server secret environment variables. Never put a secret in `VITE_*`, frontend source, screenshots, public code, or `public/`.
@@ -242,7 +242,7 @@ Uploaded PDFs used only for temporary summarization are processed for that reque
 | `LIBRAAI_DB_PATH` | `data/libraai.sqlite` | SQLite file location |
 | `LIBRAAI_UPLOAD_DIR` | `data/uploads` | Uploaded resource location |
 | `GEMINI_API_KEY` | Not set | Gemini API key |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | Gemini model |
 | `LIBRAAI_ALLOWED_ORIGINS` | Not set | Comma-separated exact origins for cross-origin API access |
 | `LIBRAAI_COOKIE_SAMESITE` | `Strict` | Set to `None` only for cross-site HTTPS |
 | `VITE_API_BASE_URL` | Same origin | Frontend API base URL, build-time variable |
