@@ -603,7 +603,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
   const testDatabase = createDatabase(':memory:')
   const testUploadPath = mkdtempSync(join(tmpdir(), 'libraai-document-test-'))
   const geminiRequests = []
-  const availableGeminiModels = ['gemini-2.5-flash', 'gemini-2.5-flash-lite']
+  const availableGeminiModels = ['gemini-3.8-flash', 'gemini-3.5-flash-lite']
   let transientGenerationFailures = 0
   let generationError = null
   const { server: testServer } = createLibraryServer({
@@ -764,7 +764,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       assert.equal(geminiRequests[0].headers['x-goog-api-key'], 'test-gemini-api-key')
       const generationRequest = geminiRequests.find((item) => item.url.pathname.endsWith(':generateContent'))
       assert.ok(generationRequest)
-      assert.match(generationRequest.url.pathname, /models\/gemini-2\.5-flash:generateContent$/)
+      assert.match(generationRequest.url.pathname, /models\/gemini-3\.8-flash:generateContent$/)
       assert.equal(generationRequest.headers['x-goog-api-key'], 'test-gemini-api-key')
       assert.match(generationRequest.body.toString(), /Ohms law states that voltage equals current times resistance/i)
       assert.ok(testDatabase.prepare('SELECT id FROM document_resources WHERE id = ?').get(pdfResource.id))
@@ -778,12 +778,12 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       const requestsBeforeDetailedFailure = geminiRequests.length
       const detailedGeminiFailure = await testRequest(`/api/resources/document/${pdfResource.id}/summary`, { method: 'POST', cookie: matchingStudent.cookie })
       assert.equal(detailedGeminiFailure.response.status, 502)
-      assert.match(detailedGeminiFailure.body.error, /Gemini summary generation with model gemini-2\.5-flash-lite failed \(HTTP 404/)
+      assert.match(detailedGeminiFailure.body.error, /Gemini summary generation with model gemini-3\.5-flash-lite failed \(HTTP 404/)
       assert.match(detailedGeminiFailure.body.error, /This model is no longer available/)
       assert.doesNotMatch(detailedGeminiFailure.body.error, /test-gemini-api-key/)
       assert.deepEqual(
         geminiRequests.slice(requestsBeforeDetailedFailure).filter((item) => item.url.pathname.endsWith(':generateContent')).map((item) => item.url.pathname),
-        ['/v1beta/models/gemini-2.5-flash:generateContent', '/v1beta/models/gemini-2.5-flash-lite:generateContent'],
+        ['/v1beta/models/gemini-3.8-flash:generateContent', '/v1beta/models/gemini-3.5-flash-lite:generateContent'],
       )
       generationError = null
 

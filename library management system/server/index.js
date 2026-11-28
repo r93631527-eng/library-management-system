@@ -288,7 +288,7 @@ async function summarizePdfWithGemini({ pdf, title, apiKey, model, fetchGemini }
 5. Possible exam questions with concise answers, each answer supported by the PDF
 6. Chapter-wise summaries, using chapter headings from the PDF when available.
 Format the result in clear Markdown.`
-  const configuredModel = (process.env.GEMINI_MODEL || model || 'gemini-2.5-flash').replace(/^models\//, '')
+  const configuredModel = (process.env.GEMINI_MODEL || model || 'gemini-3.8-flash').replace(/^models\//, '')
   const modelsResponse = await fetchGemini(`${geminiFilesApi}/v1beta/models?pageSize=1000`, {
     headers,
     signal: AbortSignal.timeout(120000),
@@ -307,7 +307,7 @@ Format the result in clear Markdown.`
     throw Object.assign(new Error('Gemini model availability check returned an invalid response.'), { status: 502 })
   }
   const flashModels = [...availableModels].filter((candidateModel) => /flash/i.test(candidateModel))
-  const models = [...new Set([configuredModel, 'gemini-2.5-flash', 'gemini-2.5-flash-lite', ...flashModels])]
+  const models = [...new Set([configuredModel, 'gemini-3.8-flash', ...flashModels])]
     .filter((candidateModel) => availableModels.has(candidateModel))
   if (models.length === 0) {
     throw Object.assign(new Error('No available Gemini Flash model supports summary generation.'), { status: 503 })
@@ -849,7 +849,7 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
             pdf,
             title: upload.originalName,
             apiKey,
-            model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+            model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
             fetchGemini,
           })
         } catch (error) {
@@ -903,7 +903,7 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
           pdf,
           title: resource.title,
           apiKey,
-          model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+          model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
           fetchGemini,
         })
         return json(response, 200, { summary })
