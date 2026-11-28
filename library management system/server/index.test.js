@@ -31,7 +31,20 @@ function createTextPdf(text) {
 
 const database = createDatabase(':memory:')
 const uploadPath = mkdtempSync(join(tmpdir(), 'libraai-api-test-'))
-const { server } = createLibraryServer({ database, uploadPath })
+const emailNotifications = []
+const emailFailures = []
+const emailService = {
+  send: async (notification) => {
+    emailNotifications.push(notification)
+    if (notification.event === 'welcome' && notification.to === 'student@example.edu') throw new Error('Test SMTP failure.')
+  },
+}
+const { server } = createLibraryServer({
+  database,
+  uploadPath,
+  emailService,
+  logger: { error: (...details) => emailFailures.push(details) },
+})
 let origin
 
 before(async () => {
@@ -122,6 +135,9 @@ test('secures roles and keeps circulation counts in sync', async () => {
   assert.equal(registration.response.status, 200)
   const studentId = registration.body.user.id
   assert.equal(registration.body.user.role, 'student')
+  assert.ok(emailNotifications.some((notification) => notification.event === 'welcome' && notification.to === 'student@example.edu'))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(emailFailures.length, 1)
   const incorrectStudentPassword = await request('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify({ identifier: 'STU001', password: 'incorrect-password', role: 'student' }),
@@ -322,6 +338,8 @@ test('secures roles and keeps circulation counts in sync', async () => {
   assert.equal(uploadedResponse.status, 201, JSON.stringify(uploaded))
   const resource = { response: uploadedResponse, body: uploaded }
   assert.ok(uploaded.id)
+  assert.ok(emailNotifications.some((notification) => notification.event === 'pdf-upload' && notification.to === 'librarian@example.edu'))
+  assert.equal(emailNotifications.some((notification) => notification.event === 'new-library-pdf' && notification.to === 'student@example.edu' && notification.filename === 'Restricted notes'), false)
   assert.match(uploaded.filePath, /^\/api\/files\//)
   const savedResource = await request('/api/database', { cookie: adminCookie })
   assert.ok(savedResource.body.resources.some((item) => item.id === uploaded.id && item.title === 'Restricted notes' && item.category === 'Lecture'))
@@ -603,6 +621,8 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
   const testDatabase = createDatabase(':memory:')
   const testUploadPath = mkdtempSync(join(tmpdir(), 'libraai-document-test-'))
   const geminiRequests = []
+  const emailNotifications = []
+  const emailFailures = []
   const availableGeminiModels = ['gemini-3.8-flash', 'gemini-3.5-flash-lite']
   let transientGenerationErrors = []
   let generationError = null
@@ -610,6 +630,13 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
     database: testDatabase,
     uploadPath: testUploadPath,
     officeConverter: async (_sourcePath, previewPath) => writeFileSync(previewPath, '%PDF-1.7\nconverted office preview'),
+    emailService: {
+      send: async (notification) => {
+        emailNotifications.push(notification)
+        if (notification.to === 'mail-failure@example.edu') throw new Error('Test SMTP failure.')
+      },
+    },
+    logger: { error: (...details) => emailFailures.push(details) },
     fetchGemini: async (input, options = {}) => {
       const requestUrl = new URL(input)
       geminiRequests.push({ url: requestUrl, method: options.method ?? 'GET', headers: options.headers ?? {}, body: options.body })
@@ -655,6 +682,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       body: JSON.stringify({ name: 'Other Student', usn: 'DOCSTU2', email: 'other@example.edu', department: 'Mathematics', password: 'student-password' }),
     })
     assert.equal(admin.response.status, 200)
+    assert.equal(emailNotifications.filter((notification) => notification.event === 'welcome').length, 2)
 
     const categoryUploadSpecs = [
       { category: 'E-Books', type: 'pdf', fileName: 'ebook.pdf', contents: createTextPdf('Ohms law states that voltage equals current times resistance. The summary should include Ohms law and electrical engineering revision notes.') },
@@ -693,6 +721,10 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
         assert.equal(repeatedResult.id, firstResult.id)
       }
     }
+    assert.equal(emailNotifications.filter((notification) => notification.event === 'pdf-upload' && notification.filename === 'ebook.pdf').length, 1)
+    assert.equal(emailNotifications.filter((notification) => notification.event === 'new-library-pdf' && notification.filename === 'Category test 0').length, 2)
+    assert.ok(emailNotifications.some((notification) => notification.event === 'pdf-upload' && notification.to === 'documents@example.edu' && notification.filename === 'ebook.pdf'))
+    assert.ok(emailNotifications.some((notification) => notification.event === 'new-library-pdf' && notification.to === 'matching@example.edu' && notification.filename === 'Category test 0'))
     for (const [index, spec] of [
       { category: 'Video Lectures', type: 'video', url: 'https://example.edu/video' },
       { category: 'Websites', type: 'external', url: 'https://example.edu/website' },
@@ -759,6 +791,8 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       const summarized = await testRequest(`/api/resources/document/${pdfResource.id}/summary`, { method: 'POST', cookie: matchingStudent.cookie })
       assert.equal(summarized.response.status, 200, JSON.stringify(summarized.body))
       assert.match(summarized.body.summary, /Test-grounded study summary/)
+      assert.equal(emailNotifications.filter((notification) => notification.event === 'summary-complete').length, 1)
+      assert.ok(emailNotifications.some((notification) => notification.event === 'summary-complete' && notification.to === 'matching@example.edu' && notification.filename === 'ebook.pdf'))
       assert.doesNotMatch(JSON.stringify(summarized.body), /test-gemini-api-key/)
       assert.equal(geminiRequests[0].method, 'GET')
       assert.equal(geminiRequests[0].url.pathname, '/v1beta/models')
@@ -782,6 +816,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
 
       generationError = { code: 404, status: 'NOT_FOUND', message: 'This model is no longer available. Choose an active model.' }
       const requestsBeforeDetailedFailure = geminiRequests.length
+      const emailsBeforeDetailedFailure = emailNotifications.filter((notification) => notification.event === 'summary-complete').length
       const detailedGeminiFailure = await testRequest(`/api/resources/document/${pdfResource.id}/summary`, { method: 'POST', cookie: matchingStudent.cookie })
       assert.equal(detailedGeminiFailure.response.status, 502)
       assert.match(detailedGeminiFailure.body.error, /Gemini summary generation with model gemini-3\.8-flash failed \(HTTP 404/)
@@ -791,6 +826,7 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
         geminiRequests.slice(requestsBeforeDetailedFailure).filter((item) => item.url.pathname.endsWith(':generateContent')).map((item) => item.url.pathname),
         ['/v1beta/models/gemini-3.5-flash-lite:generateContent', '/v1beta/models/gemini-3.8-flash:generateContent'],
       )
+      assert.equal(emailNotifications.filter((notification) => notification.event === 'summary-complete').length, emailsBeforeDetailedFailure)
       generationError = null
 
       const beforeTransientUpload = readdirSync(testUploadPath).sort()
@@ -804,6 +840,8 @@ test('uploads, previews, edits, secures, and deletes managed office resources', 
       const transientResult = await transientResponse.json()
       assert.equal(transientResponse.status, 200, JSON.stringify(transientResult))
       assert.match(transientResult.summary, /Test-grounded study summary/)
+      assert.ok(emailNotifications.some((notification) => notification.event === 'pdf-upload' && notification.to === 'matching@example.edu' && notification.filename === 'transient-notes.pdf'))
+      assert.ok(emailNotifications.some((notification) => notification.event === 'summary-complete' && notification.to === 'matching@example.edu' && notification.filename === 'transient-notes.pdf'))
       assert.deepEqual(readdirSync(testUploadPath).sort(), beforeTransientUpload)
       assert.ok(testDatabase.prepare('SELECT id FROM document_resources WHERE id = ?').get(pdfResource.id))
 

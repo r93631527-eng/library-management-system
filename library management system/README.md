@@ -233,6 +233,19 @@ PDF summary generation allows up to 10 minutes for a Gemini response; the API se
 
 Uploaded PDFs used only for temporary summarization are processed for that request and are not added to the library. Generated summaries are not saved to SQLite.
 
+## Email notifications
+
+The API can send welcome, PDF upload, summary completion, and new library PDF notifications through Gmail SMTP. Email delivery runs in the background; mail failures are logged and do not interrupt registration, uploads, or summarization. New library PDF emails go to active students who can access that resource.
+
+Add these server-only variables in Railway:
+
+```dotenv
+GMAIL_USER=your-gmail-address@gmail.com
+GMAIL_APP_PASSWORD=your-16-character-google-app-password
+```
+
+Enable 2-Step Verification on the Google account, then create an App Password in your Google Account security settings and use it as `GMAIL_APP_PASSWORD`. Do not use your regular Gmail password or expose either variable in frontend settings, `VITE_*` variables, or source code. Email notifications remain disabled until both variables are configured.
+
 ## Server environment settings
 
 | Variable | Default | Purpose |
@@ -243,6 +256,8 @@ Uploaded PDFs used only for temporary summarization are processed for that reque
 | `LIBRAAI_UPLOAD_DIR` | `data/uploads` | Uploaded resource location |
 | `GEMINI_API_KEY` | Not set | Gemini API key |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Optional fallback Gemini model if the preferred model is unavailable |
+| `GMAIL_USER` | Not set | Gmail address used by backend SMTP |
+| `GMAIL_APP_PASSWORD` | Not set | Google App Password for backend SMTP |
 | `LIBRAAI_ALLOWED_ORIGINS` | Not set | Comma-separated exact origins for cross-origin API access |
 | `LIBRAAI_COOKIE_SAMESITE` | `Strict` | Set to `None` only for cross-site HTTPS |
 | `VITE_API_BASE_URL` | Same origin | Frontend API base URL, build-time variable |

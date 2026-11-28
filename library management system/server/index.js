@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import Busboy from 'busboy'
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { createEmailService } from './email.js'
 
 const currentFile = fileURLToPath(import.meta.url)
 const applicationDirectory = dirname(currentFile)
@@ -742,7 +743,38 @@ function ensureCatalogValue(database, kind, value) {
   return database.prepare('SELECT id FROM book_categories WHERE kind = ? AND name = ? COLLATE NOCASE').get(kind, name).id
 }
 
-function createLibraryServer({ database = createDatabase(), uploadPath = uploadDirectory, officeConverter = convertOfficeToPdf, fetchGemini = globalThis.fetch } = {}) {
+function createLibraryServer({
+  database = createDatabase(),
+  uploadPath = uploadDirectory,
+  officeConverter = convertOfficeToPdf,
+  fetchGemini = globalThis.fetch,
+  emailService = createEmailService(),
+  logger = console,
+} = {}) {
+  function notifyEmail(notification) {
+    try {
+      const result = emailService.send(notification)
+      if (result && typeof result.catch === 'function') {
+        void result.catch((error) => logger.error('LibraAI email notification failed.', {
+          event: notification.event,
+          error: error.message ?? String(error),
+        }))
+      }
+    } catch (error) {
+      logger.error('LibraAI email notification failed.', {
+        event: notification.event,
+        error: error.message ?? String(error),
+      })
+    }
+  }
+  function notifyActiveStudentsAboutPdf(filename, accessType, department) {
+    const students = accessType === 'restricted'
+      ? database.prepare("SELECT name, email FROM users WHERE role = 'student' AND active = 1 AND department = ?").all(department)
+      : database.prepare("SELECT name, email FROM users WHERE role = 'student' AND active = 1").all()
+    for (const student of students) {
+      notifyEmail({ to: student.email, name: student.name, event: 'new-library-pdf', filename })
+    }
+  }
   const server = createServer(async (request, response) => {
     try {
       const requestOrigin = request.headers.origin
@@ -829,7 +861,7 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
       }
 
       if (path === '/api/ai/summarize-upload' && method === 'POST') {
-        requireUser()
+        const user = requireUser()
         const apiKey = process.env.GEMINI_API_KEY
         if (!apiKey) throw Object.assign(new Error('AI PDF summaries are not configured. A Railway project administrator must add GEMINI_API_KEY in the LibraAI service Variables, then redeploy.'), { status: 503 })
         const upload = await receivePdf(request, uploadPath)
@@ -847,6 +879,7 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
           if (!pdf.subarray(0, 5).toString('ascii').startsWith('%PDF-')) {
             throw Object.assign(new Error('This file does not contain a readable PDF.'), { status: 422 })
           }
+          notifyEmail({ to: user.email, name: user.name, event: 'pdf-upload', filename: upload.originalName })
           summary = await summarizePdfWithGemini({
             pdf,
             title: upload.originalName,
@@ -859,6 +892,7 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
           throw error
         }
         removeTemporaryPdf()
+        notifyEmail({ to: user.email, name: user.name, event: 'summary-complete', filename: upload.originalName })
         return json(response, 200, { summary })
       }
 
@@ -868,13 +902,15 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
         const [, resourceKind, resourceId] = summaryMatch
         const resource = findResourceForUser(resourceKind, resourceId, user)
         let filename
+        let summaryFilename = resource.title
         if (resourceKind === 'pdf') {
           const stored = database.prepare('SELECT file_path AS filePath FROM pdf_resources WHERE id = ?').get(resourceId)
           filename = stored?.filePath?.match(/^\/api\/files\/([a-f0-9]{32}\.pdf)$/)?.[1]
         } else {
-          const stored = database.prepare('SELECT stored_name AS storedName, file_type AS fileType FROM document_resources WHERE id = ?').get(resourceId)
+          const stored = database.prepare('SELECT stored_name AS storedName, file_type AS fileType, original_name AS originalName FROM document_resources WHERE id = ?').get(resourceId)
           if (stored?.fileType !== 'pdf') throw Object.assign(new Error('Summaries are available for uploaded PDF files only.'), { status: 415 })
           filename = stored.storedName
+          summaryFilename = stored.originalName || resource.title
         }
         if (!filename || !/^[a-f0-9]{32}\.pdf$/.test(filename)) {
           throw Object.assign(new Error('The uploaded PDF file is unavailable.'), { status: 404 })
@@ -908,6 +944,7 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
           model: process.env.GEMINI_MODEL || defaultGeminiModel,
           fetchGemini,
         })
+        notifyEmail({ to: user.email, name: user.name, event: 'summary-complete', filename: summaryFilename })
         return json(response, 200, { summary })
       }
 
@@ -944,6 +981,7 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
         const user = { id: randomBytes(16).toString('hex'), name, usn, email, department, semester: String(body.semester ?? '').trim(), mobile: String(body.mobile ?? '').trim(), role: 'student', password_hash: hashPassword(body.password), active: 1 }
         database.prepare('INSERT INTO users (id, name, usn, email, department, semester, mobile, role, password_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(user.id, user.name, user.usn, user.email, user.department, user.semester, user.mobile, user.role, user.password_hash)
         database.prepare('INSERT INTO students (user_id, semester, mobile) VALUES (?, ?, ?)').run(user.id, user.semester, user.mobile)
+        notifyEmail({ to: user.email, name: user.name, event: 'welcome' })
         return createSession(database, response, user)
       }
       if (path === '/api/auth/login' && method === 'POST') {
@@ -1010,6 +1048,7 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
           throw Object.assign(new Error('This existing PDF resource can only be replaced with another PDF file.'), { status: 400 })
         }
         const id = requestedId || randomBytes(16).toString('hex')
+        const isNewResource = !existingDocument && !existingPdf
         const sourcePath = join(uploadPath, upload.filename)
         const previewName = upload.fileType === 'pdf' ? null : `${basename(upload.filename, extname(upload.filename))}.preview.pdf`
         const previewPath = previewName ? join(uploadPath, previewName) : null
@@ -1113,6 +1152,10 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
               if (error.code !== 'ENOENT') throw Object.assign(new Error('The resource was updated, but its previous file could not be removed.'), { status: 500 })
             }
           }
+          if (upload.fileType === 'pdf') {
+            notifyEmail({ to: resourceEditor.email, name: resourceEditor.name, event: 'pdf-upload', filename: upload.originalName })
+            if (isNewResource) notifyActiveStudentsAboutPdf(title, accessType, department)
+          }
           return json(response, updating ? 200 : 201, {
             id,
             filePath: `/api/resources/file/${id}/preview`,
@@ -1136,9 +1179,12 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
         }
       }
       if (path === '/api/uploads/pdf' && method === 'POST') {
-        requireAdmin()
+        const librarian = requireAdmin()
         const upload = await receivePdf(request, uploadPath)
-        if (!upload.fields.title) return json(response, 201, { filePath: upload.filePath })
+        if (!upload.fields.title) {
+          notifyEmail({ to: librarian.email, name: librarian.name, event: 'pdf-upload', filename: upload.originalName })
+          return json(response, 201, { filePath: upload.filePath })
+        }
         let saved = false
         try {
           const type = upload.fields.resourceType ?? upload.fields.type ?? 'pdf'
@@ -1185,6 +1231,8 @@ function createLibraryServer({ database = createDatabase(), uploadPath = uploadD
               try { unlinkSync(join(uploadPath, oldFile[1])) } catch (error) { if (error.code !== 'ENOENT') throw error }
             }
           }
+          notifyEmail({ to: librarian.email, name: librarian.name, event: 'pdf-upload', filename: upload.originalName })
+          if (!existing) notifyActiveStudentsAboutPdf(title, accessType, department)
           return json(response, 201, { id, filePath: upload.filePath })
         } catch (error) {
           if (!saved) {
