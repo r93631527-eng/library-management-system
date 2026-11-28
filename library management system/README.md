@@ -246,6 +246,10 @@ GMAIL_APP_PASSWORD=your-16-character-google-app-password
 
 Enable 2-Step Verification on the Google account, then create an App Password in your Google Account security settings and use it as `GMAIL_APP_PASSWORD`. Do not use your regular Gmail password or expose either variable in frontend settings, `VITE_*` variables, or source code. Email notifications remain disabled until both variables are configured.
 
+### Automatic overdue loan reminders
+
+The API process checks active issued book loans every 15 minutes and sends one overdue email to the student's current registered email. It uses the existing `borrow_records.due_date` and `settings` table to track sent reminders; no new due-date field or table is added. Dates follow the app's existing UTC calendar-day logic: a loan is overdue after its due-date day has passed. The scheduler starts with the API process used by the Railway Docker deployment and runs independently of student sessions or the website being open. SMTP delivery failures are logged and retried on a later check.
+
 ## Server environment settings
 
 | Variable | Default | Purpose |

@@ -25,6 +25,12 @@ const emailTemplates = {
     message: 'A new PDF has been added to the LibraAI library. Sign in to view it.',
     documentLabel: 'New library PDF',
   },
+  'overdue-loan': {
+    subject: 'Your LibraAI book loan is overdue',
+    heading: 'Your book is overdue',
+    message: 'Our records show that the book below is past its due date. Please return it to the library or contact a librarian if you have already returned it.',
+    documentLabel: 'Overdue book',
+  },
 }
 
 function escapeHtml(value) {
@@ -37,7 +43,7 @@ function escapeHtml(value) {
   })[character])
 }
 
-function renderNotificationEmail({ event, filename = '', name = '' }) {
+function renderNotificationEmail({ event, filename = '', name = '', dueDate = '' }) {
   const template = emailTemplates[event]
   if (!template) throw new Error(`Unknown LibraAI email notification: ${event}`)
   const safeName = escapeHtml(name)
@@ -45,14 +51,14 @@ function renderNotificationEmail({ event, filename = '', name = '' }) {
   const greeting = safeName ? `Hello ${safeName},` : 'Hello,'
   const textGreeting = name ? `Hello ${name},` : 'Hello,'
   const documentBlock = template.documentLabel && safeFilename
-    ? `<tr><td style="padding:18px 20px;background:#101914;border:1px solid #26382c;border-radius:10px"><div style="font-size:11px;line-height:16px;color:#a6b5aa;text-transform:uppercase;letter-spacing:1px">${template.documentLabel}</div><div style="padding-top:6px;color:#f2f7f3;font-size:15px;line-height:22px;word-break:break-word">${safeFilename}</div></td></tr><tr><td style="height:20px"></td></tr>`
+    ? `<tr><td style="padding:18px 20px;background:#101914;border:1px solid #26382c;border-radius:10px"><div style="font-size:11px;line-height:16px;color:#a6b5aa;text-transform:uppercase;letter-spacing:1px">${template.documentLabel}</div><div style="padding-top:6px;color:#f2f7f3;font-size:15px;line-height:22px;word-break:break-word">${safeFilename}</div>${dueDate ? `<div style="padding-top:8px;color:#a6b5aa;font-size:13px;line-height:20px">Due date: ${escapeHtml(dueDate)}</div>` : ''}</td></tr><tr><td style="height:20px"></td></tr>`
     : ''
   const text = [
     template.heading,
     '',
     textGreeting,
     template.message,
-    ...(template.documentLabel && filename ? ['', `${template.documentLabel}: ${filename}`] : []),
+    ...(template.documentLabel && filename ? ['', `${template.documentLabel}: ${filename}`, ...(dueDate ? [`Due date: ${dueDate}`] : [])] : []),
     '',
     'LibraAI | Your library, ready to learn.',
   ].join('\n')
@@ -94,7 +100,7 @@ function createEmailService({ env = process.env, transport, createTransport = no
   }) : null)
   let configurationWarningLogged = false
 
-  async function send({ to, event, filename = '', name = '' }) {
+  async function send({ to, event, filename = '', name = '', dueDate = '' }) {
     if (!to) return false
     if (!mailTransport || !emailAddress || !appPassword) {
       if (!configurationWarningLogged) {
@@ -103,7 +109,7 @@ function createEmailService({ env = process.env, transport, createTransport = no
       }
       return false
     }
-    const message = renderNotificationEmail({ event, filename, name })
+    const message = renderNotificationEmail({ event, filename, name, dueDate })
     await mailTransport.sendMail({
       from: { name: 'LibraAI', address: emailAddress },
       to,

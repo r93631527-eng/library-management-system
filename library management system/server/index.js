@@ -10,6 +10,7 @@ import { promisify } from 'node:util'
 import Busboy from 'busboy'
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { createEmailService } from './email.js'
+import { startOverdueReminderScheduler } from './overdue-reminders.js'
 
 const currentFile = fileURLToPath(import.meta.url)
 const applicationDirectory = dirname(currentFile)
@@ -2158,7 +2159,7 @@ function createLibraryServer({
     }
   })
   server.timeout = 0
-  return { server, database }
+  return { server, database, emailService }
 }
 
 function createSession(database, response, user) {
@@ -2172,7 +2173,8 @@ function createSession(database, response, user) {
 
 if (process.argv[1] && resolve(process.argv[1]) === currentFile) {
   const port = Number(process.env.API_PORT ?? 3001)
-  const { server } = createLibraryServer()
+  const { server, database, emailService } = createLibraryServer()
+  startOverdueReminderScheduler({ database, emailService })
   server.listen(port, '0.0.0.0', () => console.log(`LibraAI API listening on http://localhost:${port}`))
 }
 

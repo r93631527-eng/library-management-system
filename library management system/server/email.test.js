@@ -18,6 +18,21 @@ test('builds branded, escaped, mobile-friendly PDF notification emails', () => {
   assert.match(message.html, /LIBRA<span style="color:#f2f7f3">AI<\/span>/)
 })
 
+test('includes book title and existing loan due date in an overdue email', () => {
+  const message = renderNotificationEmail({
+    event: 'overdue-loan',
+    name: 'Student',
+    filename: 'Engineering Textbook',
+    dueDate: '2025-02-01',
+  })
+
+  assert.equal(message.subject, 'Your LibraAI book loan is overdue')
+  assert.match(message.text, /Engineering Textbook/)
+  assert.match(message.text, /Due date: 2025-02-01/)
+  assert.match(message.html, /Engineering Textbook/)
+  assert.match(message.html, /Due date: 2025-02-01/)
+})
+
 test('sends through authenticated Gmail SMTP using a Gmail app password', async () => {
   let transportOptions
   let sentMessage
